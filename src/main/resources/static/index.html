@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>雷达数据模拟器 WebSocket 测试</title>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .button:hover {
+            background-color: #0056b3;
+        }
+        .button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .data-display {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 20px 0;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .data-item {
+            background-color: white;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        .data-item h4 {
+            margin: 0 0 10px 0;
+            color: #495057;
+        }
+        .data-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+        }
+        .data-field {
+            background-color: #e9ecef;
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+        .data-field strong {
+            color: #495057;
+        }
+        .message-log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 20px 0;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px;
+            border-left: 3px solid #007bff;
+            background-color: white;
+        }
+        .timestamp {
+            color: #6c757d;
+            font-size: 12px;
+        }
+        .controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #e9ecef;
+            border-radius: 4px;
+        }
+        .stat-item {
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #6c757d;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>雷达数据模拟器 WebSocket 测试</h1>
+        
+        <div id="status" class="status disconnected">
+            连接状态: 未连接
+        </div>
+        
+        <div class="stats">
+            <div class="stat-item">
+                <div class="stat-value" id="messageCount">0</div>
+                <div class="stat-label">接收消息数</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="dataCount">0</div>
+                <div class="stat-label">数据条数</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="connectionTime">--</div>
+                <div class="stat-label">连接时长(秒)</div>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button id="connectBtn" class="button" onclick="connect()">连接</button>
+            <button id="disconnectBtn" class="button" onclick="disconnect()" disabled>断开</button>
+            <button id="sendBtn" class="button" onclick="sendMessage()" disabled>发送消息</button>
+            <button id="clearBtn" class="button" onclick="clearLog()">清空日志</button>
+        </div>
+        
+        <div>
+            <h3>最新接收的数据</h3>
+            <div id="dataDisplay" class="data-display">
+                <p>暂无数据</p>
+            </div>
+        </div>
+        
+        <div>
+            <h3>消息日志</h3>
+            <div id="messageLog" class="message-log">
+                <p>暂无消息</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let websocket = null;
+        let messageCount = 0;
+        let dataCount = 0;
+        let connectionStartTime = null;
+        let connectionTimer = null;
+
+        function connect() {
+            const wsUrl = `ws://${window.location.hostname}:1883/websocket/kinetic`;
+            
+            try {
+                websocket = new WebSocket(wsUrl);
+                
+                websocket.onopen = function(event) {
+                    updateStatus('已连接', true);
+                    document.getElementById('connectBtn').disabled = true;
+                    document.getElementById('disconnectBtn').disabled = false;
+                    document.getElementById('sendBtn').disabled = false;
+                    
+                    connectionStartTime = new Date();
+                    startConnectionTimer();
+                    
+                    addLog('WebSocket连接已建立');
+                };
+                
+                websocket.onmessage = function(event) {
+                    messageCount++;
+                    document.getElementById('messageCount').textContent = messageCount;
+                    
+                    addLog('收到消息: ' + event.data);
+                    
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (data.data && Array.isArray(data.data)) {
+                            dataCount += data.data.length;
+                            document.getElementById('dataCount').textContent = dataCount;
+                            displayData(data.data);
+                        }
+                    } catch (e) {
+                        addLog('JSON解析失败: ' + e.message);
+                    }
+                };
+                
+                websocket.onclose = function(event) {
+                    updateStatus('连接已关闭', false);
+                    document.getElementById('connectBtn').disabled = false;
+                    document.getElementById('disconnectBtn').disabled = true;
+                    document.getElementById('sendBtn').disabled = true;
+                    
+                    stopConnectionTimer();
+                    addLog('WebSocket连接已关闭');
+                };
+                
+                websocket.onerror = function(error) {
+                    updateStatus('连接错误', false);
+                    addLog('WebSocket连接错误: ' + error);
+                };
+                
+            } catch (error) {
+                addLog('连接失败: ' + error.message);
+            }
+        }
+        
+        function disconnect() {
+            if (websocket) {
+                websocket.close();
+                websocket = null;
+            }
+        }
+        
+        function sendMessage() {
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                const message = '测试消息 ' + new Date().toLocaleTimeString();
+                websocket.send(message);
+                addLog('发送消息: ' + message);
+            }
+        }
+        
+        function updateStatus(message, connected) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = '连接状态: ' + message;
+            statusDiv.className = 'status ' + (connected ? 'connected' : 'disconnected');
+        }
+        
+        function displayData(dataArray) {
+            const displayDiv = document.getElementById('dataDisplay');
+            
+            if (dataArray.length === 0) {
+                displayDiv.innerHTML = '<p>暂无数据</p>';
+                return;
+            }
+            
+            let html = '';
+            dataArray.forEach((item, index) => {
+                html += `
+                    <div class="data-item">
+                        <h4>数据项 ${index + 1} (ID: ${item.id})</h4>
+                        <div class="data-grid">
+                            <div class="data-field"><strong>类型:</strong> ${item.type}</div>
+                            <div class="data-field"><strong>X:</strong> ${item.x}</div>
+                            <div class="data-field"><strong>Y:</strong> ${item.y}</div>
+                            <div class="data-field"><strong>Z:</strong> ${item.z}</div>
+                            <div class="data-field"><strong>A:</strong> ${item.a}</div>
+                            <div class="data-field"><strong>D:</strong> ${item.d}</div>
+                            <div class="data-field"><strong>VX:</strong> ${item.vx}</div>
+                            <div class="data-field"><strong>VY:</strong> ${item.vy}</div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            displayDiv.innerHTML = html;
+        }
+        
+        function addLog(message) {
+            const logDiv = document.getElementById('messageLog');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            logEntry.innerHTML = `<span class="timestamp">[${timestamp}]</span> ${message}`;
+            
+            if (logDiv.children.length === 0) {
+                logDiv.innerHTML = '';
+            }
+            
+            logDiv.appendChild(logEntry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        function clearLog() {
+            document.getElementById('messageLog').innerHTML = '<p>暂无消息</p>';
+            document.getElementById('dataDisplay').innerHTML = '<p>暂无数据</p>';
+            messageCount = 0;
+            dataCount = 0;
+            document.getElementById('messageCount').textContent = '0';
+            document.getElementById('dataCount').textContent = '0';
+        }
+        
+        function startConnectionTimer() {
+            connectionTimer = setInterval(() => {
+                if (connectionStartTime) {
+                    const elapsed = Math.floor((new Date() - connectionStartTime) / 1000);
+                    document.getElementById('connectionTime').textContent = elapsed;
+                }
+            }, 1000);
+        }
+        
+        function stopConnectionTimer() {
+            if (connectionTimer) {
+                clearInterval(connectionTimer);
+                connectionTimer = null;
+            }
+            document.getElementById('connectionTime').textContent = '--';
+        }
+        
+        // 页面加载完成后的初始化
+        window.onload = function() {
+            addLog('页面已加载，可以开始连接WebSocket');
+        };
+        
+        // 页面卸载时关闭连接
+        window.onbeforeunload = function() {
+            if (websocket) {
+                websocket.close();
+            }
+        };
+    </script>
+</body>
+</html> 

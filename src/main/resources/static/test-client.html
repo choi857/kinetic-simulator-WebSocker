@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>依电科技-WebSocket动态数据模拟器</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .content {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+            padding: 20px;
+        }
+        .section {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            border: 1px solid #e9ecef;
+        }
+        .section h3 {
+            margin-top: 0;
+            color: #495057;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+        .input-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #495057;
+        }
+        input, select, textarea {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+            box-sizing: border-box;
+        }
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: transform 0.2s;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            transform: translateY(-2px);
+        }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-weight: 600;
+        }
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .log-container {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 8px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 2px 0;
+        }
+        .log-entry.received {
+            color: #68d391;
+        }
+        .log-entry.sent {
+            color: #63b3ed;
+        }
+        .log-entry.error {
+            color: #fc8181;
+        }
+        .log-entry.info {
+            color: #f6e05e;
+        }
+        .template-editor {
+            background: white;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        .field-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+            padding: 8px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border: 1px solid #e9ecef;
+        }
+        .field-path {
+            flex: 1;
+            font-weight: 600;
+            color: #495057;
+            margin-right: 10px;
+        }
+        .field-type-select {
+            width: 150px;
+            margin-right: 10px;
+        }
+        .field-value {
+            flex: 2;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #6c757d;
+        }
+        .field-limits {
+            display: flex;
+            align-items: center;
+            margin-left: 10px;
+        }
+        .field-limits input {
+            width: 80px;
+            margin: 0 5px;
+            padding: 4px 6px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+        .field-limits label {
+            font-size: 11px;
+            color: #6c757d;
+            margin: 0 2px;
+        }
+        .preview-section {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+        .preview-json {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .connection-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #e3f2fd;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        .connection-count {
+            font-weight: 600;
+            color: #1976d2;
+        }
+        /* 悬浮日志容器 */
+        #floatingLogContainer {
+            position: fixed;
+            top: 80px;
+            right: 40px;
+            width: 372px;
+            max-height: 70vh;
+            background: #2d3748;
+            color: #e2e8f0;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+            z-index: 9999;
+            overflow-y: auto;
+            padding: 18px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            transition: opacity 0.2s, visibility 0.2s;
+        }
+        #floatingLogContainer.hide {
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+        }
+        /* 悬浮日志开关按钮 */
+        #toggleLogBtn {
+            position: fixed;
+            right: 48px;
+            bottom: 48px;
+            z-index: 10000;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            border: none;
+            border-radius: 50%;
+            width: 56px;
+            height: 56px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+            font-size: 28px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s, box-shadow 0.2s;
+        }
+        #toggleLogBtn:hover {
+            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.22);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔌 依电科技-WebSocket动态数据模拟器</h1>
+            <p>支持智能数据类型识别和交互式模板编辑</p>
+        </div>
+        
+        <div class="content">
+            <!-- 左侧：连接和模板编辑 -->
+            <div class="left-panel">
+                <!-- 连接控制 -->
+                <div class="section">
+                    <h3>🔗 连接控制</h3>
+                    <div class="connection-info">
+                        <span>当前连接数: <span id="connectionCount" class="connection-count">0</span></span>
+                        <span id="connectionStatus" class="status disconnected">未连接</span>
+                    </div>
+                    <div class="controls">
+                        <button id="connectBtn" onclick="connect()">连接</button>
+                        <button id="disconnectBtn" onclick="disconnect()" disabled>断开</button>
+                        <button onclick="clearLog()">清空日志</button>
+                        <button onclick="getConnectionCount()">刷新连接数</button>
+                    </div>
+                </div>
+
+                <!-- 模板编辑器 -->
+                <div class="section">
+                    <h3>📝 交互式模板编辑器</h3>
+                    <div class="input-group">
+                        <label for="jsonInput">输入JSON模板:</label>
+                        <textarea id="jsonInput" rows="8" placeholder='{"user_id": 0, "user_name": "", "age": 0, "email": "", "is_active": false}'></textarea>
+                    </div>
+                    <div class="controls">
+                        <button onclick="parseAndEditTemplate()">解析并编辑</button>
+                        <button onclick="generateRandomTemplate()">生成示例模板</button>
+                        <button onclick="clearTemplate()">清空模板</button>
+                    </div>
+                    
+                    <div id="templateEditor" class="template-editor" style="display: none;">
+                        <h4>字段类型配置</h4>
+                        <div id="fieldList"></div>
+                        <div class="controls">
+                            <button onclick="applyTemplate()">应用模板</button>
+                            <button onclick="previewTemplate()">预览数据</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 数据预览 -->
+                <div class="section">
+                    <h3>👀 数据预览</h3>
+                    <div class="preview-section">
+                        <div id="previewContent" class="preview-json">等待生成数据...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧：日志和消息（已移除） -->
+        </div>
+    </div>
+
+    <!-- 悬浮日志容器 -->
+    <div id="floatingLogContainer"></div>
+    <!-- 悬浮日志开关按钮 -->
+    <button id="toggleLogBtn" title="显示/隐藏实时日志" onclick="toggleLog()">📝</button>
+
+    <script>
+        let ws = null;
+        let isConnected = false;
+        let currentTemplate = null;
+        let fieldTypes = {};
+        let fieldLimits = {}; // 新增：存储字段的最大值最小值限制
+
+        // 数据类型选项
+        const dataTypes = [
+            { value: 'auto', label: '自动识别' },
+            { value: 'string', label: '字符串' },
+            { value: 'int', label: '整数' },
+            { value: 'double', label: '浮点数' },
+            { value: 'boolean', label: '布尔值' },
+            { value: 'array', label: '数组' },
+            { value: 'object', label: '对象' },
+            { value: 'email', label: '邮箱' },
+            { value: 'phone', label: '手机号' },
+            { value: 'date', label: '日期时间' },
+            { value: 'ip', label: 'IP地址' },
+            { value: 'url', label: 'URL' },
+            { value: 'uuid', label: 'UUID' },
+            { value: 'name', label: '姓名' },
+            { value: 'color', label: '颜色' },
+            { value: 'age', label: '年龄(1-100)' },
+            { value: 'year', label: '年份(2000-2024)' },
+            { value: 'month', label: '月份(1-12)' },
+            { value: 'day', label: '日期(1-31)' },
+            { value: 'hour', label: '小时(0-23)' },
+            { value: 'minute', label: '分钟(0-59)' },
+            { value: 'second', label: '秒(0-59)' },
+            { value: 'port', label: '端口(1024-65535)' },
+            { value: 'id', label: 'ID(1-1000000)' },
+            { value: 'price', label: '价格(0-1000)' },
+            { value: 'rate', label: '比率(0-100%)' },
+            { value: 'score', label: '分数(0-10)' },
+            { value: 'temperature', label: '温度(-10-40)' },
+            { value: 'latitude', label: '纬度(-90-90)' },
+            { value: 'longitude', label: '经度(-180-180)' }
+        ];
+
+        function connect() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                log('已经连接', 'info');
+                return;
+            }
+
+            // 使用相对路径，自动匹配当前协议和主机
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const host = window.location.host;
+            const wsUrl = `${protocol}//${host}/`;
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = function() {
+                isConnected = true;
+                updateConnectionStatus();
+                log('WebSocket连接已建立', 'info');
+            };
+
+            ws.onmessage = function(event) {
+                log('收到: ' + event.data, 'received');
+                    try {
+                        const data = JSON.parse(event.data);
+                    updatePreview(JSON.stringify(data, null, 2));
+                    } catch (e) {
+                    updatePreview(event.data);
+                }
+            };
+
+            ws.onclose = function() {
+                isConnected = false;
+                updateConnectionStatus();
+                log('WebSocket连接已关闭', 'info');
+            };
+
+            ws.onerror = function(error) {
+                log('WebSocket错误: ' + error, 'error');
+            };
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+
+        function updateConnectionStatus() {
+            const status = document.getElementById('connectionStatus');
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+
+            if (isConnected) {
+                status.textContent = '已连接';
+                status.className = 'status connected';
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+            } else {
+                status.textContent = '未连接';
+                status.className = 'status disconnected';
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+            }
+        }
+
+        function log(message, type = 'info') {
+            const logContainer = document.getElementById('floatingLogContainer');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry ${type}`;
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('floatingLogContainer').innerHTML = '';
+        }
+
+        function getConnectionCount() {
+            fetch('/api/connection-count')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('connectionCount').textContent = data.count;
+                })
+                .catch(error => {
+                    log('获取连接数失败: ' + error, 'error');
+                });
+        }
+
+        function parseAndEditTemplate() {
+            const jsonInput = document.getElementById('jsonInput').value.trim();
+            if (!jsonInput) {
+                alert('请输入JSON模板');
+                return;
+            }
+
+            try {
+                const template = JSON.parse(jsonInput);
+                currentTemplate = template;
+                fieldTypes = {};
+                renderFieldEditor(template);
+                document.getElementById('templateEditor').style.display = 'block';
+                log('模板解析成功，请配置字段类型', 'info');
+            } catch (error) {
+                alert('JSON格式错误: ' + error.message);
+                log('JSON解析失败: ' + error.message, 'error');
+            }
+        }
+
+        function renderFieldEditor(obj, path = '') {
+            const fieldList = document.getElementById('fieldList');
+            fieldList.innerHTML = '';
+
+            function addFields(obj, currentPath) {
+                if (Array.isArray(obj)) {
+                    // 处理数组类型
+                    if (obj.length > 0) {
+                        // 为数组的第一个元素创建字段配置
+                        addFields(obj[0], currentPath + '[0]');
+                    }
+                } else if (typeof obj === 'object' && obj !== null) {
+                    // 处理对象类型
+                    for (const [key, value] of Object.entries(obj)) {
+                        const fieldPath = currentPath ? `${currentPath}.${key}` : key;
+                        const fieldRow = document.createElement('div');
+                        fieldRow.className = 'field-row';
+                        const fieldPathSpan = document.createElement('div');
+                        fieldPathSpan.className = 'field-path';
+                        fieldPathSpan.textContent = fieldPath;
+                        const typeSelect = document.createElement('select');
+                        typeSelect.className = 'field-type-select';
+                        typeSelect.onchange = function() {
+                            fieldTypes[fieldPath] = this.value;
+                            // 切换类型时重置最大最小值输入框
+                            if (minInput) minInput.value = '';
+                            if (maxInput) maxInput.value = '';
+                            // 切换输入框类型
+                            if (isNumericType(this.value)) {
+                                minInput.type = 'number';
+                                maxInput.type = 'number';
+                                minInput.placeholder = '最小值';
+                                maxInput.placeholder = '最大值';
+                            } else if (this.value === 'date') {
+                                minInput.type = 'datetime-local';
+                                maxInput.type = 'datetime-local';
+                                minInput.placeholder = '最小日期时间';
+                                maxInput.placeholder = '最大日期时间';
+                            } else {
+                                minInput.type = 'text';
+                                maxInput.type = 'text';
+                                minInput.placeholder = '最小值';
+                                maxInput.placeholder = '最大值';
+                            }
+                        };
+                        // 添加数据类型选项
+                        dataTypes.forEach(type => {
+                            const option = document.createElement('option');
+                            option.value = type.value;
+                            option.textContent = type.label;
+                            typeSelect.appendChild(option);
+                        });
+                        // 设置默认值
+                        const defaultType = getDefaultType(key, value);
+                        typeSelect.value = defaultType;
+                        fieldTypes[fieldPath] = defaultType;
+                        const fieldValue = document.createElement('div');
+                        fieldValue.className = 'field-value';
+                        fieldValue.textContent = JSON.stringify(value);
+                        const fieldLimits = document.createElement('div');
+                        fieldLimits.className = 'field-limits';
+                        // 检查是否为数字类型或日期类型，如果是则显示最大值最小值输入框
+                        let minInput = null, maxInput = null;
+                        if (isNumericType(defaultType) || defaultType === 'date') {
+                            const minLabel = document.createElement('label');
+                            minLabel.textContent = '最小:';
+                            fieldLimits.appendChild(minLabel);
+                            minInput = document.createElement('input');
+                            minInput.type = isNumericType(defaultType) ? 'number' : (defaultType === 'date' ? 'datetime-local' : 'text');
+                            minInput.placeholder = isNumericType(defaultType) ? '最小值' : (defaultType === 'date' ? '最小日期时间' : '最小值');
+                            minInput.onchange = function() {
+                                if (!fieldLimitsObj[fieldPath]) fieldLimitsObj[fieldPath] = {};
+                                fieldLimitsObj[fieldPath].min = this.value;
+                            };
+                            fieldLimits.appendChild(minInput);
+                            const maxLabel = document.createElement('label');
+                            maxLabel.textContent = '最大:';
+                            fieldLimits.appendChild(maxLabel);
+                            maxInput = document.createElement('input');
+                            maxInput.type = isNumericType(defaultType) ? 'number' : (defaultType === 'date' ? 'datetime-local' : 'text');
+                            maxInput.placeholder = isNumericType(defaultType) ? '最大值' : (defaultType === 'date' ? '最大日期时间' : '最大值');
+                            maxInput.onchange = function() {
+                                if (!fieldLimitsObj[fieldPath]) fieldLimitsObj[fieldPath] = {};
+                                fieldLimitsObj[fieldPath].max = this.value;
+                            };
+                            fieldLimits.appendChild(maxInput);
+                        }
+                        fieldRow.appendChild(fieldPathSpan);
+                        fieldRow.appendChild(typeSelect);
+                        fieldRow.appendChild(fieldValue);
+                        fieldRow.appendChild(fieldLimits);
+                        fieldList.appendChild(fieldRow);
+                        // 递归处理嵌套对象和数组
+                        if (typeof value === 'object' && value !== null) {
+                            addFields(value, fieldPath);
+                        }
+                    }
+                }
+            }
+            // 工具函数：判断是否为数字类型
+            function isNumericType(type) {
+                return ['int', 'double', 'age', 'year', 'month', 'day', 'hour', 'minute', 'second', 'port', 'id', 'price', 'rate', 'score', 'temperature', 'latitude', 'longitude'].includes(type);
+            }
+            // 字段限制对象
+            let fieldLimitsObj = fieldLimits;
+            addFields(obj, path);
+            // 显示当前配置的字段类型
+            console.log('当前字段类型配置:', fieldTypes);
+        }
+
+        function getDefaultType(key, value) {
+            const lowerKey = key.toLowerCase();
+            
+            // 根据字段名和值类型推断默认类型
+            if (typeof value === 'number') {
+                if (Number.isInteger(value)) {
+                    if (lowerKey.includes('age')) return 'age';
+                    if (lowerKey.includes('year')) return 'year';
+                    if (lowerKey.includes('month')) return 'month';
+                    if (lowerKey.includes('day')) return 'day';
+                    if (lowerKey.includes('hour')) return 'hour';
+                    if (lowerKey.includes('minute')) return 'minute';
+                    if (lowerKey.includes('second')) return 'second';
+                    if (lowerKey.includes('port')) return 'port';
+                    if (lowerKey.includes('id')) return 'id';
+                    if (lowerKey.includes('type')) return 'int';
+                    return 'int';
+                } else {
+                    if (lowerKey.includes('price')) return 'price';
+                    if (lowerKey.includes('rate')) return 'rate';
+                    if (lowerKey.includes('score')) return 'score';
+                    if (lowerKey.includes('temperature')) return 'temperature';
+                    if (lowerKey.includes('latitude')) return 'latitude';
+                    if (lowerKey.includes('longitude')) return 'longitude';
+                    if (lowerKey.includes('x') || lowerKey.includes('y') || lowerKey.includes('z')) return 'double';
+                    if (lowerKey.includes('a') || lowerKey.includes('d')) return 'double';
+                    return 'double';
+                }
+            } else if (typeof value === 'boolean') {
+                return 'boolean';
+            } else if (typeof value === 'string') {
+                if (lowerKey.includes('email')) return 'email';
+                if (lowerKey.includes('phone') || lowerKey.includes('mobile')) return 'phone';
+                if (lowerKey.includes('date') || lowerKey.includes('time')) return 'date';
+                if (lowerKey.includes('ip')) return 'ip';
+                if (lowerKey.includes('url')) return 'url';
+                if (lowerKey.includes('uuid') || lowerKey.includes('guid')) return 'uuid';
+                if (lowerKey.includes('name')) return 'name';
+                if (lowerKey.includes('color')) return 'color';
+                return 'string';
+            } else if (Array.isArray(value)) {
+                return 'array';
+            } else if (typeof value === 'object' && value !== null) {
+                return 'object';
+            }
+            
+            return 'auto';
+        }
+
+        function applyTemplate() {
+            if (!currentTemplate || !isConnected) {
+                alert('请先解析模板并建立连接');
+                return;
+            }
+
+            // 根据用户选择的类型修改模板
+            const modifiedTemplate = modifyTemplateByTypes(currentTemplate, fieldTypes);
+            
+            // 发送包含模板、字段类型配置和字段限制的JSON
+            const templateConfig = {
+                template: modifiedTemplate,
+                fieldTypes: fieldTypes,
+                fieldLimits: fieldLimits
+            };
+            
+            const templateJson = JSON.stringify(templateConfig);
+            ws.send(templateJson);
+            log('发送模板配置: ' + templateJson, 'sent');
+            
+            document.getElementById('jsonInput').value = JSON.stringify(modifiedTemplate, null, 2);
+        }
+
+        function modifyTemplateByTypes(template, types) {
+            const modified = JSON.parse(JSON.stringify(template));
+            
+            function modifyObject(obj, path = '') {
+                if (Array.isArray(obj)) {
+                    // 处理数组类型
+                    if (obj.length > 0) {
+                        modifyObject(obj[0], path + '[0]');
+                    }
+                } else if (typeof obj === 'object' && obj !== null) {
+                    // 处理对象类型
+                    for (const [key, value] of Object.entries(obj)) {
+                        const fieldPath = path ? `${path}.${key}` : key;
+                        const type = types[fieldPath];
+                        
+                        if (type && type !== 'auto') {
+                            // 根据选择的类型设置默认值
+                            switch (type) {
+                                case 'string':
+                                case 'email':
+                                case 'phone':
+                                case 'date':
+                                case 'ip':
+                                case 'url':
+                                case 'uuid':
+                                case 'name':
+                                case 'color':
+                                    obj[key] = '';
+                                    break;
+                                case 'int':
+                                case 'age':
+                                case 'year':
+                                case 'month':
+                                case 'day':
+                                case 'hour':
+                                case 'minute':
+                                case 'second':
+                                case 'port':
+                                case 'id':
+                                    obj[key] = 0;
+                                    break;
+                                case 'double':
+                                case 'price':
+                                case 'rate':
+                                case 'score':
+                                case 'temperature':
+                                case 'latitude':
+                                case 'longitude':
+                                    obj[key] = 0.0;
+                                    break;
+                                case 'boolean':
+                                    obj[key] = false;
+                                    break;
+                                case 'array':
+                                    // 保持数组结构，只修改数组元素的默认值
+                                    if (Array.isArray(obj[key]) && obj[key].length > 0) {
+                                        // 递归处理数组的第一个元素
+                                        modifyObject(obj[key][0], fieldPath + '[0]');
+                                    }
+                                    break;
+                                case 'object':
+                                    // 保持对象结构，只修改对象字段的默认值
+                                    if (typeof obj[key] === 'object' && obj[key] !== null) {
+                                        modifyObject(obj[key], fieldPath);
+                                    }
+                                    break;
+                            }
+                        }
+                        
+                        // 递归处理嵌套对象和数组
+                        if (typeof obj[key] === 'object' && obj[key] !== null) {
+                            modifyObject(obj[key], fieldPath);
+                        }
+                    }
+                }
+            }
+            
+            modifyObject(modified);
+            return modified;
+        }
+
+        function previewTemplate() {
+            if (!currentTemplate) {
+                alert('请先解析模板');
+                return;
+            }
+
+            const modifiedTemplate = modifyTemplateByTypes(currentTemplate, fieldTypes);
+            updatePreview(JSON.stringify(modifiedTemplate, null, 2));
+            log('模板预览已更新', 'info');
+        }
+
+        function updatePreview(content) {
+            document.getElementById('previewContent').textContent = content;
+        }
+
+        function generateRandomTemplate() {
+            const templates = [
+                {
+                    "user_id": 0,
+                    "user_name": "",
+                    "user_email": "",
+                    "age": 0,
+                    "phone": "",
+                    "is_active": false,
+                    "score": 0.0,
+                    "registration_date": ""
+                },
+                {
+                    "product_id": 0,
+                    "product_name": "",
+                    "price": 0.0,
+                    "category": "",
+                    "in_stock": false,
+                    "rating": 0.0,
+                    "tags": [""]
+                },
+                {
+                    "sensor_id": 0,
+                    "temperature": 0.0,
+                    "humidity": 0.0,
+                    "location": {
+                        "latitude": 0.0,
+                        "longitude": 0.0
+                    },
+                    "timestamp": "",
+                    "is_online": false
+                }
+            ];
+            
+            const randomTemplate = templates[Math.floor(Math.random() * templates.length)];
+            document.getElementById('jsonInput').value = JSON.stringify(randomTemplate, null, 2);
+            log('已生成示例模板', 'info');
+        }
+
+        function clearTemplate() {
+            document.getElementById('jsonInput').value = '';
+            document.getElementById('templateEditor').style.display = 'none';
+            document.getElementById('fieldList').innerHTML = '';
+            currentTemplate = null;
+            fieldTypes = {};
+            fieldLimits = {}; // 清空字段限制
+            updatePreview('等待生成数据...');
+            log('模板已清空', 'info');
+        }
+
+        // 定期更新连接数
+        setInterval(getConnectionCount, 5000);
+        
+        // 页面加载时初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            getConnectionCount();
+            
+            // 添加测试按钮用于验证功能
+            const testButton = document.createElement('button');
+            testButton.textContent = '测试字段编辑器';
+            testButton.onclick = function() {
+                const testTemplate = {
+                    "user_id": 0,
+                    "user_name": "",
+                    "age": 0,
+                    "email": "",
+                    "is_active": false,
+                    "location": {
+                        "latitude": 0.0,
+                        "longitude": 0.0
+                    }
+                };
+                document.getElementById('jsonInput').value = JSON.stringify(testTemplate, null, 2);
+                parseAndEditTemplate();
+            };
+            document.querySelector('.controls').appendChild(testButton);
+        });
+
+        function toggleLog() {
+            const logContainer = document.getElementById('floatingLogContainer');
+            logContainer.classList.toggle('hide');
+        }
+    </script>
+</body>
+</html> 
