@@ -316,4 +316,6 @@ mvn -version
 
 - [Spring Boot WebSocket 官方文档](https://spring.io/guides/gs/messaging-stomp-websocket/)
 - [WebSocket API 文档](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)
-- [Jackson JSON 处理](https://github.com/FasterXML/jackson) 
+- [Jackson JSON 处理](https://github.com/FasterXML/jackson)
+
+---

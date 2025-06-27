@@ -16,6 +16,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.Random;
+import java.util.concurrent.ScheduledFuture;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 
 /**
  * 支持动态json结构的WebSocket服务端
@@ -26,6 +30,7 @@ public class DynamicWebSocketServer {
     private static final Logger logger = LoggerFactory.getLogger(DynamicWebSocketServer.class);
     private static final ObjectMapper mapper = new ObjectMapper();
     private static final Map<Session, TemplateConfig> sessionTemplateMap = new ConcurrentHashMap<>();
+    private static final Map<Session, ScheduledFuture<?>> sessionTaskMap = new ConcurrentHashMap<>();
     private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
     private static final Random random = new Random();
     // 全局最新模板配置
@@ -38,17 +43,51 @@ public class DynamicWebSocketServer {
         public JsonNode template; // 原始模板
         public Map<String, String> fieldTypes; // 字段类型映射
         public Map<String, FieldLimit> fieldLimits; // 字段限制映射
+        public Map<String, String> fieldDefaults; // 字段默认值映射
+        public double pushInterval = 1.0; // 推送频率，单位秒，默认1秒
+        public String mode = "normal"; // 生成模式，normal/advanced
+        public int groupCount = 1; // 新增
 
         public TemplateConfig(JsonNode template, Map<String, String> fieldTypes) {
             this.template = template;
             this.fieldTypes = fieldTypes;
             this.fieldLimits = new ConcurrentHashMap<>();
+            this.fieldDefaults = new ConcurrentHashMap<>();
+            this.pushInterval = 1.0;
+            this.mode = "normal";
         }
         
         public TemplateConfig(JsonNode template, Map<String, String> fieldTypes, Map<String, FieldLimit> fieldLimits) {
             this.template = template;
             this.fieldTypes = fieldTypes;
             this.fieldLimits = fieldLimits != null ? fieldLimits : new ConcurrentHashMap<>();
+            this.fieldDefaults = new ConcurrentHashMap<>();
+            this.pushInterval = 1.0;
+            this.mode = "normal";
+        }
+        public TemplateConfig(JsonNode template, Map<String, String> fieldTypes, Map<String, FieldLimit> fieldLimits, double pushInterval) {
+            this.template = template;
+            this.fieldTypes = fieldTypes;
+            this.fieldLimits = fieldLimits != null ? fieldLimits : new ConcurrentHashMap<>();
+            this.fieldDefaults = new ConcurrentHashMap<>();
+            this.pushInterval = pushInterval > 0.1 ? pushInterval : 1.0;
+            this.mode = "normal";
+        }
+        public TemplateConfig(JsonNode template, Map<String, String> fieldTypes, Map<String, FieldLimit> fieldLimits, Map<String, String> fieldDefaults, double pushInterval) {
+            this.template = template;
+            this.fieldTypes = fieldTypes;
+            this.fieldLimits = fieldLimits != null ? fieldLimits : new ConcurrentHashMap<>();
+            this.fieldDefaults = fieldDefaults != null ? fieldDefaults : new ConcurrentHashMap<>();
+            this.pushInterval = pushInterval > 0.1 ? pushInterval : 1.0;
+            this.mode = "normal";
+        }
+        public TemplateConfig(JsonNode template, Map<String, String> fieldTypes, Map<String, FieldLimit> fieldLimits, Map<String, String> fieldDefaults, double pushInterval, String mode) {
+            this.template = template;
+            this.fieldTypes = fieldTypes;
+            this.fieldLimits = fieldLimits != null ? fieldLimits : new ConcurrentHashMap<>();
+            this.fieldDefaults = fieldDefaults != null ? fieldDefaults : new ConcurrentHashMap<>();
+            this.pushInterval = pushInterval > 0.1 ? pushInterval : 1.0;
+            this.mode = mode != null ? mode : "normal";
         }
     }
 
@@ -74,11 +113,13 @@ public class DynamicWebSocketServer {
                     sessionTemplateMap.put(session, latestGlobalTemplate);
                     logger.info("连接{}未收到模板，自动分配全局模板", session.getId());
                     sendRandomData(session, latestGlobalTemplate);
-                    scheduler.scheduleAtFixedRate(() -> {
+                    double interval = latestGlobalTemplate.pushInterval > 0.1 ? latestGlobalTemplate.pushInterval : 1.0;
+                    ScheduledFuture<?> future = scheduler.scheduleAtFixedRate(() -> {
                         if (session.isOpen()) {
                             sendRandomData(session, latestGlobalTemplate);
                         }
-                    }, 5, 5, TimeUnit.SECONDS);
+                    }, (long)(interval * 1000), (long)(interval * 1000), TimeUnit.MILLISECONDS);
+                    sessionTaskMap.put(session, future);
                 } else {
                     logger.warn("连接{}未收到模板，且全局模板为空，无法推送数据", session.getId());
                     sendText(session, "未收到模板且全局模板为空，无法推送数据");
@@ -93,18 +134,28 @@ public class DynamicWebSocketServer {
             // 只在第一次收到消息时尝试解析为模板
             try {
                 JsonNode jsonNode = mapper.readTree(message);
-                
+                double pushInterval = 1.0;
+                if (jsonNode.has("pushInterval")) {
+                    try {
+                        pushInterval = jsonNode.get("pushInterval").asDouble(1.0);
+                        if (pushInterval < 0.1) pushInterval = 1.0;
+                    } catch (Exception e) {
+                        pushInterval = 1.0;
+                    }
+                }
+                String mode = "normal";
+                if (jsonNode.has("mode")) {
+                    mode = jsonNode.get("mode").asText();
+                }
                 // 检查是否是包含类型配置的模板
                 if (jsonNode.has("template") && jsonNode.has("fieldTypes")) {
                     // 新的格式：包含模板和字段类型配置
                     JsonNode template = jsonNode.get("template");
                     JsonNode fieldTypesNode = jsonNode.get("fieldTypes");
-                    
                     Map<String, String> fieldTypes = new ConcurrentHashMap<>();
                     fieldTypesNode.fieldNames().forEachRemaining(field -> {
                         fieldTypes.put(field, fieldTypesNode.get(field).asText());
                     });
-                    
                     // 处理字段限制
                     Map<String, FieldLimit> fieldLimits = new ConcurrentHashMap<>();
                     if (jsonNode.has("fieldLimits")) {
@@ -118,42 +169,93 @@ public class DynamicWebSocketServer {
                             }
                         });
                     }
-                    
-                    TemplateConfig config = new TemplateConfig(template, fieldTypes, fieldLimits);
+                    // 处理字段默认值
+                    Map<String, String> fieldDefaults = new ConcurrentHashMap<>();
+                    if (jsonNode.has("fieldDefaults")) {
+                        JsonNode fieldDefaultsNode = jsonNode.get("fieldDefaults");
+                        fieldDefaultsNode.fieldNames().forEachRemaining(field -> {
+                            JsonNode defNode = fieldDefaultsNode.get(field);
+                            String value = null;
+                            if (defNode.has("value")) value = defNode.get("value").asText();
+                            else value = defNode.asText();
+                            if (value != null) fieldDefaults.put(field, value);
+                        });
+                    }
+                    int groupCount = 1;
+                    if (jsonNode.has("groupCount")) {
+                        try {
+                            groupCount = jsonNode.get("groupCount").asInt(1);
+                            if (groupCount < 1) groupCount = 1;
+                            if (groupCount > 3) groupCount = 3;
+                        } catch (Exception e) {
+                            groupCount = 1;
+                        }
+                    }
+                    TemplateConfig config = new TemplateConfig(template, fieldTypes, fieldLimits, fieldDefaults, pushInterval, mode);
+                    config.groupCount = groupCount;
                     sessionTemplateMap.put(session, config);
                     latestGlobalTemplate = config; // 更新全局模板
-                    logger.info("收到并保存模板配置: 模板={}, 字段类型={}, 字段限制={}", template.toString(), fieldTypes, fieldLimits);
-                    
+                    logger.info("收到并保存模板配置: 模板={}, 字段类型={}, 字段限制={}, 默认值={}, 推送频率={}, 生成模式={}, 组数={}", template.toString(), fieldTypes, fieldLimits, fieldDefaults, pushInterval, mode, groupCount);
                     // 立即推送一次
                     sendRandomData(session, config);
-                    // 启动定时推送
-                    scheduler.scheduleAtFixedRate(() -> {
+                    // 启动定时推送（先取消旧任务）
+                    ScheduledFuture<?> oldTask = sessionTaskMap.get(session);
+                    if (oldTask != null) oldTask.cancel(true);
+                    ScheduledFuture<?> future = scheduler.scheduleAtFixedRate(() -> {
                         if (session.isOpen()) {
                             sendRandomData(session, config);
                         }
-                    }, 5, 5, TimeUnit.SECONDS);
+                    }, (long)(pushInterval * 1000), (long)(pushInterval * 1000), TimeUnit.MILLISECONDS);
+                    sessionTaskMap.put(session, future);
                 } else {
                     // 旧格式：直接是JSON模板，使用字段名推断类型
                     Map<String, String> fieldTypes = inferFieldTypes(jsonNode);
-                    TemplateConfig config = new TemplateConfig(jsonNode, fieldTypes);
+                    TemplateConfig config = new TemplateConfig(jsonNode, fieldTypes, null, null, pushInterval, mode);
                     sessionTemplateMap.put(session, config);
                     latestGlobalTemplate = config;
-                    logger.info("收到并保存模板: {}，已推断字段类型: {}", jsonNode.toString(), fieldTypes);
-                    
+                    logger.info("收到并保存模板: {}，已推断字段类型: {}，推送频率={}, 生成模式={}", jsonNode.toString(), fieldTypes, pushInterval, mode);
                     // 立即推送一次
                     sendRandomData(session, config);
-                    // 启动定时推送
-                    scheduler.scheduleAtFixedRate(() -> {
+                    // 启动定时推送（先取消旧任务）
+                    ScheduledFuture<?> oldTask = sessionTaskMap.get(session);
+                    if (oldTask != null) oldTask.cancel(true);
+                    ScheduledFuture<?> future = scheduler.scheduleAtFixedRate(() -> {
                         if (session.isOpen()) {
                             sendRandomData(session, config);
                         }
-                    }, 5, 5, TimeUnit.SECONDS);
+                    }, (long)(pushInterval * 1000), (long)(pushInterval * 1000), TimeUnit.MILLISECONDS);
+                    sessionTaskMap.put(session, future);
                 }
             } catch (Exception e) {
                 logger.warn("解析json模板失败: {}", e.getMessage());
                 sendText(session, "模板解析失败: " + e.getMessage());
             }
         } else {
+            // 支持动态调整推送频率
+            try {
+                JsonNode jsonNode = mapper.readTree(message);
+                if (jsonNode.has("pushInterval") && jsonNode.size() == 1) {
+                    double pushInterval = jsonNode.get("pushInterval").asDouble(1.0);
+                    if (pushInterval < 0.1) pushInterval = 1.0;
+                    TemplateConfig config = sessionTemplateMap.get(session);
+                    if (config != null) {
+                        config.pushInterval = pushInterval;
+                        // 先取消旧任务
+                        ScheduledFuture<?> oldTask = sessionTaskMap.get(session);
+                        if (oldTask != null) oldTask.cancel(true);
+                        // 启动新任务
+                        ScheduledFuture<?> future = scheduler.scheduleAtFixedRate(() -> {
+                            if (session.isOpen()) {
+                                sendRandomData(session, config);
+                            }
+                        }, (long)(pushInterval * 1000), (long)(pushInterval * 1000), TimeUnit.MILLISECONDS);
+                        sessionTaskMap.put(session, future);
+                        logger.info("连接{} 动态调整推送频率为 {} 秒", session.getId(), pushInterval);
+                        sendText(session, "推送频率已调整为 " + pushInterval + " 秒");
+                    }
+                    return;
+                }
+            } catch (Exception ignore) {}
             // 后续消息只做简单回显或忽略
             String msg = message.trim();
             if ("HEARTBEAT".equalsIgnoreCase(msg) || "PING".equalsIgnoreCase(msg)) {
@@ -173,6 +275,8 @@ public class DynamicWebSocketServer {
     @OnClose
     public void onClose(Session session) {
         sessionTemplateMap.remove(session);
+        ScheduledFuture<?> oldTask = sessionTaskMap.remove(session);
+        if (oldTask != null) oldTask.cancel(true);
         logger.info("连接关闭: {}", session.getId());
     }
 
@@ -191,7 +295,13 @@ public class DynamicWebSocketServer {
 
     private void sendRandomData(Session session, TemplateConfig config) {
         try {
-            JsonNode data = generateRandomByTemplate(config);
+            logger.info("推送数据前，当前groupCount={}", config.groupCount);
+            JsonNode data;
+            if ("advanced".equals(config.mode)) {
+                data = AdvancedDataGenerator.generate(config.template, config.fieldTypes, config.fieldLimits, config.fieldDefaults, config.groupCount);
+            } else {
+                data = generateRandomByTemplate(config);
+            }
             String json = mapper.writeValueAsString(data);
             sendText(session, json);
         } catch (Exception e) {
@@ -286,14 +396,67 @@ public class DynamicWebSocketServer {
         return generateRandomByTemplateRecursive(config.template, config.fieldTypes, "", config);
     }
 
+    // 工具方法：路径归一化，将所有[数字]替换为[0]
+    private String normalizeArrayPath(String path) {
+        return path == null ? null : path.replaceAll("\\[\\d+\\]", "[0]");
+    }
+
+    // 新增：路径回退查找（如data[3].children[2].id -> data[0].children[0].id）
+    private String getTypeWithFallback(Map<String, String> fieldTypes, String path) {
+        String type = fieldTypes.get(path);
+        if (type != null) return type;
+        String fallbackPath = normalizeArrayPath(path);
+        return fieldTypes.getOrDefault(fallbackPath, "string");
+    }
+
+    // 获取字段限制，优先查找当前path，没有则fallback到[0]（递归归一化）
+    private FieldLimit getFieldLimitWithFallback(Map<String, FieldLimit> fieldLimits, String path) {
+        FieldLimit limit = fieldLimits.get(path);
+        if (limit != null) return limit;
+        String fallbackPath = normalizeArrayPath(path);
+        return fieldLimits.get(fallbackPath);
+    }
+
+    // 递归生成与模板结构一致的随机数据
     private JsonNode generateRandomByTemplateRecursive(JsonNode template, Map<String, String> fieldTypes, String path, TemplateConfig config) {
+        // 优先使用默认值（归一化路径）
+        String normPath = normalizeArrayPath(path);
+        if (config.fieldDefaults != null && config.fieldDefaults.containsKey(normPath)) {
+            String defVal = config.fieldDefaults.get(normPath);
+            if (defVal != null && !defVal.isEmpty()) {
+                return parseDefaultValueToJsonNode(defVal, getTypeWithFallback(fieldTypes, path), template);
+            }
+        }
         if (template.isArray()) {
             ArrayNode arr = mapper.createArrayNode();
-            // 生成1-3个元素
             int len = template.size() > 0 ? random.nextInt(3) + 1 : 0;
             for (int i = 0; i < len; i++) {
-                // 为数组中的每个元素生成数据
-                JsonNode elementData = generateRandomByTemplateRecursive(template.get(0), fieldTypes, path + "[" + i + "]", config);
+                // 构造新的 fieldTypes 和 fieldLimits，key 替换 [0] 为 [i]
+                Map<String, String> newFieldTypes = new ConcurrentHashMap<>();
+                for (Map.Entry<String, String> entry : fieldTypes.entrySet()) {
+                    String key = entry.getKey();
+                    if (key.contains(path + "[0]")) {
+                        String newKey = key.replace(path + "[0]", path + "[" + i + "]");
+                        newFieldTypes.put(newKey, entry.getValue());
+                    }
+                }
+                Map<String, FieldLimit> newFieldLimits = new ConcurrentHashMap<>();
+                for (Map.Entry<String, FieldLimit> entry : config.fieldLimits.entrySet()) {
+                    String key = entry.getKey();
+                    if (key.contains(path + "[0]")) {
+                        String newKey = key.replace(path + "[0]", path + "[" + i + "]");
+                        newFieldLimits.put(newKey, entry.getValue());
+                    }
+                }
+                // 合并原有配置
+                Map<String, String> mergedTypes = new ConcurrentHashMap<>(fieldTypes);
+                mergedTypes.putAll(newFieldTypes);
+                Map<String, FieldLimit> mergedLimits = new ConcurrentHashMap<>(config.fieldLimits);
+                mergedLimits.putAll(newFieldLimits);
+                TemplateConfig newConfig = new TemplateConfig(config.template, mergedTypes, mergedLimits, config.fieldDefaults, config.pushInterval, config.mode);
+                // 修复：每个元素用各自的模板结构
+                JsonNode elementTemplate = template.get(i < template.size() ? i : 0);
+                JsonNode elementData = generateRandomByTemplateRecursive(elementTemplate, mergedTypes, path + "[" + i + "]", newConfig);
                 arr.add(elementData);
             }
             return arr;
@@ -302,22 +465,28 @@ public class DynamicWebSocketServer {
             template.fieldNames().forEachRemaining(field -> {
                 String fieldPath = path.isEmpty() ? field : path + "." + field;
                 JsonNode fieldValue = template.get(field);
-                String fieldType = fieldTypes.getOrDefault(fieldPath, "string");
-                JsonNode generatedValue = generateRandomByType(fieldType, fieldValue, fieldTypes, fieldPath, config);
+                JsonNode generatedValue = generateRandomByTemplateRecursive(fieldValue, fieldTypes, fieldPath, config);
                 obj.set(field, generatedValue);
             });
             return obj;
         } else {
-            String fieldType = fieldTypes.getOrDefault(path, "string");
+            String fieldType = getTypeWithFallback(fieldTypes, path);
             return generateRandomByType(fieldType, template, fieldTypes, path, config);
         }
     }
 
     // 根据指定类型生成随机数据
     private JsonNode generateRandomByType(String type, JsonNode template, Map<String, String> fieldTypes, String path, TemplateConfig config) {
-        // 获取字段限制
-        FieldLimit limit = config.fieldLimits.get(path);
-        
+        // 优先使用默认值（归一化路径）
+        String normPath = normalizeArrayPath(path);
+        if (config.fieldDefaults != null && config.fieldDefaults.containsKey(normPath)) {
+            String defVal = config.fieldDefaults.get(normPath);
+            if (defVal != null && !defVal.isEmpty()) {
+                return parseDefaultValueToJsonNode(defVal, type, template);
+            }
+        }
+        // 获取字段限制，优先查找当前path，没有则fallback到[0]（递归归一化）
+        FieldLimit limit = getFieldLimitWithFallback(config.fieldLimits, path);
         switch (type) {
             case "int":
             case "age":
@@ -338,6 +507,35 @@ public class DynamicWebSocketServer {
             case "latitude":
             case "longitude":
                 return generateRandomDouble(type, limit);
+            case "timestamp_realtime":
+                // 实时时间戳，毫秒
+                return new LongNode(System.currentTimeMillis());
+            case "timestamp_editable": {
+                // 优先用默认值（归一化路径）
+                if (config.fieldDefaults != null && config.fieldDefaults.containsKey(normPath)) {
+                    String defVal = config.fieldDefaults.get(normPath);
+                    if (defVal != null && !defVal.isEmpty()) {
+                        try {
+                            return new LongNode(Long.parseLong(defVal));
+                        } catch (Exception e) {
+                            logger.warn("可修改时间戳默认值解析失败: {}", defVal);
+                        }
+                    }
+                }
+                long min = 1577808000000L; // 2020-01-01 00:00:00
+                long max = System.currentTimeMillis() + 365L * 24 * 3600 * 1000; // 默认最大为一年后
+                if (limit != null) {
+                    try {
+                        if (limit.min != null && !limit.min.isEmpty()) min = Long.parseLong(limit.min);
+                        if (limit.max != null && !limit.max.isEmpty()) max = Long.parseLong(limit.max);
+                    } catch (Exception e) {
+                        logger.warn("可修改时间戳最大/最小值解析失败: min={}, max={}", limit.min, limit.max);
+                    }
+                }
+                if (min > max) min = max;
+                long val = min + (long)(random.nextDouble() * (max - min + 1));
+                return new LongNode(val);
+            }
             case "boolean":
                 return BooleanNode.valueOf(random.nextBoolean());
             case "array":
@@ -478,51 +676,39 @@ public class DynamicWebSocketServer {
 
     // 生成随机日期时间
     private String generateRandomDateTime(FieldLimit limit) {
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        LocalDateTime minDate = null, maxDate = null;
+        try {
+            if (limit != null) {
+                if (limit.min != null && !limit.min.isEmpty()) {
+                    String minStr = limit.min.replace('T', ' ');
+                    if (minStr.length() == 10) minStr += " 00:00:00";
+                    else if (minStr.length() == 16) minStr += ":00";
+                    minDate = LocalDateTime.parse(minStr, formatter);
+                }
+                if (limit.max != null && !limit.max.isEmpty()) {
+                    String maxStr = limit.max.replace('T', ' ');
+                    if (maxStr.length() == 10) maxStr += " 23:59:59";
+                    else if (maxStr.length() == 16) maxStr += ":59";
+                    maxDate = LocalDateTime.parse(maxStr, formatter);
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("解析日期限制失败，使用默认值: min={}, max={}", limit != null ? limit.min : null, limit != null ? limit.max : null);
+        }
+        if (minDate != null && maxDate != null && !minDate.isAfter(maxDate)) {
+            long seconds = ChronoUnit.SECONDS.between(minDate, maxDate);
+            long randomSeconds = seconds > 0 ? (long)(random.nextDouble() * seconds) : 0;
+            LocalDateTime randomDate = minDate.plusSeconds(randomSeconds);
+            return randomDate.format(formatter);
+        }
+        // 原有逻辑
         int year = 2020 + random.nextInt(5);
         int month = random.nextInt(12) + 1;
         int day = random.nextInt(28) + 1;
         int hour = random.nextInt(24);
         int minute = random.nextInt(60);
         int second = random.nextInt(60);
-        
-        // 如果有日期限制，则应用限制
-        if (limit != null && limit.min != null) {
-            try {
-                String[] parts = limit.min.split(" ");
-                if (parts.length == 2) {
-                    String[] dateParts = parts[0].split("-");
-                    String[] timeParts = parts[1].split(":");
-                    
-                    if (dateParts.length == 3 && timeParts.length == 3) {
-                        int yearLimit = Integer.parseInt(dateParts[0]);
-                        int monthLimit = Integer.parseInt(dateParts[1]);
-                        int dayLimit = Integer.parseInt(dateParts[2]);
-                        int hourLimit = Integer.parseInt(timeParts[0]);
-                        int minuteLimit = Integer.parseInt(timeParts[1]);
-                        int secondLimit = Integer.parseInt(timeParts[2]);
-                        
-                        // 确保生成的日期不小于限制的最小值
-                        if (year < yearLimit || 
-                            (year == yearLimit && month < monthLimit) ||
-                            (year == yearLimit && month == monthLimit && day < dayLimit) ||
-                            (year == yearLimit && month == monthLimit && day == dayLimit && hour < hourLimit) ||
-                            (year == yearLimit && month == monthLimit && day == dayLimit && hour == hourLimit && minute < minuteLimit) ||
-                            (year == yearLimit && month == monthLimit && day == dayLimit && hour == hourLimit && minute == minuteLimit && second < secondLimit)) {
-                            
-                            year = yearLimit;
-                            month = monthLimit;
-                            day = dayLimit;
-                            hour = hourLimit;
-                            minute = minuteLimit;
-                            second = secondLimit;
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                logger.warn("解析日期限制失败，使用默认值: {}", limit.min);
-            }
-        }
-        
         return String.format("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
     }
 
@@ -579,13 +765,35 @@ public class DynamicWebSocketServer {
     // 生成随机数组
     private JsonNode generateRandomArray(JsonNode template, Map<String, String> fieldTypes, String path, TemplateConfig config) {
         ArrayNode arr = mapper.createArrayNode();
-        // 生成1-3个元素
         int len = random.nextInt(3) + 1;
         for (int i = 0; i < len; i++) {
-            if (template.size() > 0) {
-                JsonNode elementData = generateRandomByTemplateRecursive(template.get(0), fieldTypes, path + "[" + i + "]", config);
-                arr.add(elementData);
+            // 构造新的 fieldTypes 和 fieldLimits，key 替换 [0] 为 [i]
+            Map<String, String> newFieldTypes = new ConcurrentHashMap<>();
+            for (Map.Entry<String, String> entry : fieldTypes.entrySet()) {
+                String key = entry.getKey();
+                if (key.contains(path + "[0]")) {
+                    String newKey = key.replace(path + "[0]", path + "[" + i + "]");
+                    newFieldTypes.put(newKey, entry.getValue());
+                }
             }
+            Map<String, FieldLimit> newFieldLimits = new ConcurrentHashMap<>();
+            for (Map.Entry<String, FieldLimit> entry : config.fieldLimits.entrySet()) {
+                String key = entry.getKey();
+                if (key.contains(path + "[0]")) {
+                    String newKey = key.replace(path + "[0]", path + "[" + i + "]");
+                    newFieldLimits.put(newKey, entry.getValue());
+                }
+            }
+            // 合并原有配置
+            Map<String, String> mergedTypes = new ConcurrentHashMap<>(fieldTypes);
+            mergedTypes.putAll(newFieldTypes);
+            Map<String, FieldLimit> mergedLimits = new ConcurrentHashMap<>(config.fieldLimits);
+            mergedLimits.putAll(newFieldLimits);
+            TemplateConfig newConfig = new TemplateConfig(config.template, mergedTypes, mergedLimits, config.fieldDefaults, config.pushInterval, config.mode);
+            // 修复：每个元素用各自的模板结构
+            JsonNode elementTemplate = template.get(i < template.size() ? i : 0);
+            JsonNode elementData = generateRandomByTemplateRecursive(elementTemplate, mergedTypes, path + "[" + i + "]", newConfig);
+            arr.add(elementData);
         }
         return arr;
     }
@@ -603,6 +811,68 @@ public class DynamicWebSocketServer {
             });
         }
         return obj;
+    }
+
+    // 工具方法：将默认值字符串转为合适的JsonNode
+    private JsonNode parseDefaultValueToJsonNode(String defVal, String type, JsonNode template) {
+        try {
+            switch (type) {
+                case "int":
+                case "age":
+                case "year":
+                case "month":
+                case "day":
+                case "hour":
+                case "minute":
+                case "second":
+                case "port":
+                case "id":
+                    return new IntNode(Integer.parseInt(defVal));
+                case "double":
+                case "price":
+                case "rate":
+                case "score":
+                case "temperature":
+                case "latitude":
+                case "longitude":
+                    return new DoubleNode(Double.parseDouble(defVal));
+                case "boolean":
+                    return BooleanNode.valueOf("true".equalsIgnoreCase(defVal) || "1".equals(defVal));
+                case "array":
+                    // 支持多行文本或json数组
+                    if (defVal.trim().startsWith("[") && defVal.trim().endsWith("]")) {
+                        return mapper.readTree(defVal);
+                    } else {
+                        // 尝试按逗号分割
+                        ArrayNode arr = mapper.createArrayNode();
+                        for (String s : defVal.split("\n|,")) {
+                            if (!s.trim().isEmpty()) arr.add(s.trim());
+                        }
+                        return arr;
+                    }
+                case "object":
+                    if (defVal.trim().startsWith("{") && defVal.trim().endsWith("}")) {
+                        return mapper.readTree(defVal);
+                    } else {
+                        // 尝试用原模板结构，递归填充
+                        if (template != null && template.isObject()) {
+                            ObjectNode obj = mapper.createObjectNode();
+                            template.fieldNames().forEachRemaining(f -> {
+                                obj.set(f, new TextNode(defVal));
+                            });
+                            return obj;
+                        }
+                        return new TextNode(defVal);
+                    }
+                case "date":
+                    return new TextNode(defVal);
+                default:
+                    return new TextNode(defVal);
+            }
+        } catch (Exception e) {
+            logger.warn("解析默认值失败: {} type={}，原样返回字符串", defVal, type);
+            return new TextNode(defVal);
+        }
     }
 
     public static int getOnlineCount() {

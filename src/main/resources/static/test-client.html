@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebSocket动态数据模拟器</title>
+    <title>依电科技-WebSocket动态数据模拟器</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -264,12 +264,28 @@
             background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
             box-shadow: 0 8px 32px rgba(0,0,0,0.22);
         }
+        .mode-btn {
+            /* 不再单独设置宽高、字体、padding、圆角等，全部继承button */
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        .mode-btn.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+            color: #fff !important;
+            border: 1px solid #667eea !important;
+        }
+        .push-interval-group {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-right: 18px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🔌 WebSocket动态数据模拟器</h1>
+            <h1>🔌 依电科技-WebSocket动态数据模拟器</h1>
             <p>支持智能数据类型识别和交互式模板编辑</p>
         </div>
         
@@ -284,10 +300,27 @@
                         <span id="connectionStatus" class="status disconnected">未连接</span>
                     </div>
                     <div class="controls">
-                        <button id="connectBtn" onclick="connect()">连接</button>
-                        <button id="disconnectBtn" onclick="disconnect()" disabled>断开</button>
-                        <button onclick="clearLog()">清空日志</button>
-                        <button onclick="getConnectionCount()">刷新连接数</button>
+                        <div class="push-interval-group">
+                            <label style="margin-right:8px; font-weight:400; color:#495057;white-space:nowrap;">
+                                推送频率(秒):
+                                <input id="pushIntervalInput" type="number" min="0.1" step="0.1" value="5" style="width:60px;display:inline-block;margin-left:4px;vertical-align:middle;">
+                            </label>
+                            <button id="changePushIntervalBtn" onclick="changePushInterval()">修改推送频率</button>
+                        </div>
+                        <div class="push-interval-group" style="display:none;">
+                            <label style="margin-right:8px; font-weight:400; color:#495057;white-space:nowrap;">
+                                生成组数:
+                                <input id="groupCountInput" type="number" min="1" max="3" value="1" style="width:60px;display:inline-block;margin-left:4px;vertical-align:middle;">
+                            </label>
+                        </div>
+                        <div style="display:inline-block;width:100%;margin-top:4px;">
+                            <button id="connectBtn" onclick="connect()">连接</button>
+                            <button id="disconnectBtn" onclick="disconnect()" disabled>断开</button>
+                            <button onclick="clearLog()">清空日志</button>
+                            <button onclick="getConnectionCount()">刷新连接数</button>
+                            <button id="normalModeBtn" type="button" class="mode-btn" onclick="toggleMode(false)">普通模式</button>
+                            <button id="advancedModeBtn" type="button" class="mode-btn" onclick="toggleMode(true)">高级模式</button>
+                        </div>
                     </div>
                 </div>
 
@@ -302,13 +335,15 @@
                         <button onclick="parseAndEditTemplate()">解析并编辑</button>
                         <button onclick="generateRandomTemplate()">生成示例模板</button>
                         <button onclick="clearTemplate()">清空模板</button>
+                        <button id="testFieldEditorBtn">测试字段编辑器</button>
                     </div>
                     
                     <div id="templateEditor" class="template-editor" style="display: none;">
                         <h4>字段类型配置</h4>
                         <div id="fieldList"></div>
                         <div class="controls">
-                            <button onclick="applyTemplate()">应用模板</button>
+                            <button id="applyTemplateBtn" onclick="applyTemplate()">应用模板</button>
+                            <button id="updateTemplateBtn" onclick="updateAndReconnectTemplate()" style="display:none;">更新应用模板</button>
                             <button onclick="previewTemplate()">预览数据</button>
                         </div>
                     </div>
@@ -322,8 +357,6 @@
                     </div>
                 </div>
             </div>
-
-            <!-- 右侧：日志和消息（已移除） -->
         </div>
     </div>
 
@@ -338,6 +371,7 @@
         let currentTemplate = null;
         let fieldTypes = {};
         let fieldLimits = {}; // 新增：存储字段的最大值最小值限制
+        let mode = "normal";
 
         // 数据类型选项
         const dataTypes = [
@@ -351,6 +385,8 @@
             { value: 'email', label: '邮箱' },
             { value: 'phone', label: '手机号' },
             { value: 'date', label: '日期时间' },
+            { value: 'timestamp_realtime', label: '实时时间戳(毫秒)' },
+            { value: 'timestamp_editable', label: '可修改时间戳(毫秒)' },
             { value: 'ip', label: 'IP地址' },
             { value: 'url', label: 'URL' },
             { value: 'uuid', label: 'UUID' },
@@ -373,6 +409,13 @@
             { value: 'longitude', label: '经度(-180-180)' }
         ];
 
+        function isNumericType(type) {
+            return [
+                'int', 'double', 'age', 'year', 'month', 'day', 'hour', 'minute', 'second',
+                'port', 'id', 'price', 'rate', 'score', 'temperature', 'latitude', 'longitude'
+            ].includes(type);
+        }
+
         function connect() {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 log('已经连接', 'info');
@@ -388,6 +431,7 @@
             ws.onopen = function() {
                 isConnected = true;
                 updateConnectionStatus();
+                updateTemplateButtons();
                 log('WebSocket连接已建立', 'info');
             };
 
@@ -404,6 +448,7 @@
             ws.onclose = function() {
                 isConnected = false;
                 updateConnectionStatus();
+                updateTemplateButtons();
                 log('WebSocket连接已关闭', 'info');
             };
 
@@ -434,6 +479,18 @@
                 status.className = 'status disconnected';
                 connectBtn.disabled = false;
                 disconnectBtn.disabled = true;
+            }
+        }
+
+        function updateTemplateButtons() {
+            const applyBtn = document.getElementById('applyTemplateBtn');
+            const updateBtn = document.getElementById('updateTemplateBtn');
+            if (isConnected) {
+                applyBtn.style.display = 'none';
+                updateBtn.style.display = '';
+            } else {
+                applyBtn.style.display = '';
+                updateBtn.style.display = 'none';
             }
         }
 
@@ -485,18 +542,65 @@
         function renderFieldEditor(obj, path = '') {
             const fieldList = document.getElementById('fieldList');
             fieldList.innerHTML = '';
-
+            // 高级模式下，允许为任意路径配置；普通模式下只允许[0]路径
             function addFields(obj, currentPath) {
                 if (Array.isArray(obj)) {
-                    // 处理数组类型
                     if (obj.length > 0) {
-                        // 为数组的第一个元素创建字段配置
-                        addFields(obj[0], currentPath + '[0]');
+                        if (mode === 'advanced') {
+                            for (let i = 0; i < Math.min(obj.length, 3); i++) {
+                                addFields(obj[i], currentPath + '[' + i + ']');
+                            }
+                        } else {
+                            addFields(obj[0], currentPath + '[0]');
+                        }
                     }
                 } else if (typeof obj === 'object' && obj !== null) {
-                    // 处理对象类型
                     for (const [key, value] of Object.entries(obj)) {
                         const fieldPath = currentPath ? `${currentPath}.${key}` : key;
+                        if (mode === 'normal' && /\[\d+\]/.test(fieldPath) && !/\[0\]/.test(fieldPath)) continue;
+                        // --- data字段特殊处理 ---
+                        if (fieldPath === 'data') {
+                            const fieldRow = document.createElement('div');
+                            fieldRow.className = 'field-row';
+                            const fieldPathSpan = document.createElement('div');
+                            fieldPathSpan.className = 'field-path';
+                            fieldPathSpan.textContent = fieldPath;
+                            fieldRow.appendChild(fieldPathSpan);
+                            // 类型下拉框
+                            const typeSelect = document.createElement('select');
+                            typeSelect.className = 'field-type-select';
+                            ['array', 'object'].forEach(type => {
+                                const option = document.createElement('option');
+                                option.value = type;
+                                option.textContent = type === 'array' ? '数组' : '对象';
+                                typeSelect.appendChild(option);
+                            });
+                            // 自动识别类型
+                            typeSelect.value = Array.isArray(value) ? 'array' : 'object';
+                            typeSelect.onchange = function() {
+                                // 切换类型时，自动更新模板内容
+                                if (this.value === 'array' && !Array.isArray(value)) {
+                                    currentTemplate.data = [{}];
+                                } else if (this.value === 'object' && Array.isArray(value)) {
+                                    currentTemplate.data = {};
+                                }
+                                // 重新渲染
+                                renderFieldEditor(currentTemplate);
+                            };
+                            fieldRow.appendChild(typeSelect);
+                            // data值显示
+                            const fieldValue = document.createElement('div');
+                            fieldValue.className = 'field-value';
+                            fieldValue.textContent = JSON.stringify(value);
+                            fieldRow.appendChild(fieldValue);
+                            fieldList.appendChild(fieldRow);
+                            // 递归
+                            if (typeof value === 'object' && value !== null) {
+                                addFields(value, fieldPath);
+                            }
+                            continue;
+                        }
+                        // --- 其他字段原有渲染逻辑 ---
                         const fieldRow = document.createElement('div');
                         fieldRow.className = 'field-row';
                         const fieldPathSpan = document.createElement('div');
@@ -506,35 +610,78 @@
                         typeSelect.className = 'field-type-select';
                         typeSelect.onchange = function() {
                             fieldTypes[fieldPath] = this.value;
-                            // 切换类型时重置最大最小值输入框
                             if (minInput) minInput.value = '';
                             if (maxInput) maxInput.value = '';
-                            // 切换输入框类型
+                            if (defaultInput) defaultInput.value = '';
                             if (isNumericType(this.value)) {
                                 minInput.type = 'number';
                                 maxInput.type = 'number';
                                 minInput.placeholder = '最小值';
                                 maxInput.placeholder = '最大值';
+                                defaultInput.type = 'number';
+                                defaultInput.placeholder = '默认值';
+                                minInput.disabled = false;
+                                maxInput.disabled = false;
+                                defaultInput.disabled = false;
+                                if (minInput.nextElementSibling && minInput.nextElementSibling.className === 'ts-tip') minInput.nextElementSibling.remove();
                             } else if (this.value === 'date') {
                                 minInput.type = 'datetime-local';
                                 maxInput.type = 'datetime-local';
                                 minInput.placeholder = '最小日期时间';
                                 maxInput.placeholder = '最大日期时间';
+                                defaultInput.type = 'datetime-local';
+                                defaultInput.placeholder = '默认日期时间';
+                                minInput.disabled = false;
+                                maxInput.disabled = false;
+                                defaultInput.disabled = false;
+                                if (minInput.nextElementSibling && minInput.nextElementSibling.className === 'ts-tip') minInput.nextElementSibling.remove();
+                            } else if (this.value === 'timestamp_realtime') {
+                                minInput.type = 'number';
+                                maxInput.type = 'number';
+                                defaultInput.type = 'number';
+                                minInput.value = '';
+                                maxInput.value = '';
+                                defaultInput.value = '';
+                                minInput.disabled = true;
+                                maxInput.disabled = true;
+                                defaultInput.disabled = true;
+                                if (!(minInput.nextElementSibling && minInput.nextElementSibling.className === 'ts-tip')) {
+                                    const tip = document.createElement('span');
+                                    tip.className = 'ts-tip';
+                                    tip.style.color = '#888';
+                                    tip.style.marginLeft = '8px';
+                                    minInput.parentNode.insertBefore(tip, minInput.nextSibling);
+                                }
+                            } else if (this.value === 'timestamp_editable') {
+                                minInput.type = 'number';
+                                maxInput.type = 'number';
+                                defaultInput.type = 'number';
+                                minInput.placeholder = '最小时间戳(毫秒)';
+                                maxInput.placeholder = '最大时间戳(毫秒)';
+                                defaultInput.placeholder = '默认时间戳(毫秒)';
+                                minInput.disabled = false;
+                                maxInput.disabled = false;
+                                defaultInput.disabled = false;
+                                if (minInput.nextElementSibling && minInput.nextElementSibling.className === 'ts-tip') minInput.nextElementSibling.remove();
                             } else {
                                 minInput.type = 'text';
                                 maxInput.type = 'text';
                                 minInput.placeholder = '最小值';
                                 maxInput.placeholder = '最大值';
+                                defaultInput.type = 'text';
+                                defaultInput.placeholder = '默认值';
+                                minInput.disabled = false;
+                                maxInput.disabled = false;
+                                defaultInput.disabled = false;
+                                if (minInput.nextElementSibling && minInput.nextElementSibling.className === 'ts-tip') minInput.nextElementSibling.remove();
                             }
                         };
-                        // 添加数据类型选项
                         dataTypes.forEach(type => {
                             const option = document.createElement('option');
                             option.value = type.value;
                             option.textContent = type.label;
                             typeSelect.appendChild(option);
                         });
-                        // 设置默认值
                         const defaultType = getDefaultType(key, value);
                         typeSelect.value = defaultType;
                         fieldTypes[fieldPath] = defaultType;
@@ -543,8 +690,7 @@
                         fieldValue.textContent = JSON.stringify(value);
                         const fieldLimits = document.createElement('div');
                         fieldLimits.className = 'field-limits';
-                        // 检查是否为数字类型或日期类型，如果是则显示最大值最小值输入框
-                        let minInput = null, maxInput = null;
+                        let minInput = null, maxInput = null, defaultInput = null;
                         if (isNumericType(defaultType) || defaultType === 'date') {
                             const minLabel = document.createElement('label');
                             minLabel.textContent = '最小:';
@@ -568,28 +714,47 @@
                                 fieldLimitsObj[fieldPath].max = this.value;
                             };
                             fieldLimits.appendChild(maxInput);
+                            // 默认值输入框
+                            const defaultLabel = document.createElement('label');
+                            defaultLabel.textContent = '默认:';
+                            fieldLimits.appendChild(defaultLabel);
+                            defaultInput = document.createElement('input');
+                            defaultInput.type = minInput.type;
+                            defaultInput.placeholder = minInput.type === 'datetime-local' ? '默认日期时间' : '默认值';
+                            defaultInput.onchange = function() {
+                                if (!fieldDefaultsObj[fieldPath]) fieldDefaultsObj[fieldPath] = {};
+                                fieldDefaultsObj[fieldPath].value = this.value;
+                            };
+                            fieldLimits.appendChild(defaultInput);
+                        } else {
+                            // 默认值输入框
+                            const defaultLabel = document.createElement('label');
+                            defaultLabel.textContent = '默认:';
+                            fieldLimits.appendChild(defaultLabel);
+                            defaultInput = document.createElement('input');
+                            defaultInput.type = 'text';
+                            defaultInput.placeholder = '默认值';
+                            defaultInput.onchange = function() {
+                                if (!fieldDefaultsObj[fieldPath]) fieldDefaultsObj[fieldPath] = {};
+                                fieldDefaultsObj[fieldPath].value = this.value;
+                            };
+                            fieldLimits.appendChild(defaultInput);
                         }
                         fieldRow.appendChild(fieldPathSpan);
                         fieldRow.appendChild(typeSelect);
                         fieldRow.appendChild(fieldValue);
                         fieldRow.appendChild(fieldLimits);
                         fieldList.appendChild(fieldRow);
-                        // 递归处理嵌套对象和数组
                         if (typeof value === 'object' && value !== null) {
                             addFields(value, fieldPath);
                         }
                     }
                 }
             }
-            // 工具函数：判断是否为数字类型
-            function isNumericType(type) {
-                return ['int', 'double', 'age', 'year', 'month', 'day', 'hour', 'minute', 'second', 'port', 'id', 'price', 'rate', 'score', 'temperature', 'latitude', 'longitude'].includes(type);
-            }
-            // 字段限制对象
             let fieldLimitsObj = fieldLimits;
+            let fieldDefaultsObj = {};
             addFields(obj, path);
-            // 显示当前配置的字段类型
-            console.log('当前字段类型配置:', fieldTypes);
+            window._fieldDefaultsObj = fieldDefaultsObj;
         }
 
         function getDefaultType(key, value) {
@@ -642,25 +807,58 @@
         }
 
         function applyTemplate() {
-            if (!currentTemplate || !isConnected) {
-                alert('请先解析模板并建立连接');
+            if (!currentTemplate) {
+                alert('请先解析模板');
                 return;
             }
+            if (!isConnected) {
+                connect();
+                let tryCount = 0;
+                const trySend = setInterval(() => {
+                    if (isConnected) {
+                        clearInterval(trySend);
+                        _doApplyTemplate();
+                    } else if (++tryCount > 20) {
+                        clearInterval(trySend);
+                        alert('连接超时，无法应用模板');
+                    }
+                }, 200);
+            } else {
+                _doApplyTemplate();
+            }
+        }
 
-            // 根据用户选择的类型修改模板
+        function _doApplyTemplate() {
+            const pushInterval = parseFloat(document.getElementById('pushIntervalInput').value) || 5;
+            const groupCount = Math.max(1, Math.min(3, parseInt(document.getElementById('groupCountInput').value) || 1));
             const modifiedTemplate = modifyTemplateByTypes(currentTemplate, fieldTypes);
-            
-            // 发送包含模板、字段类型配置和字段限制的JSON
+            const newFieldLimits = {};
+            document.querySelectorAll('.field-row').forEach(row => {
+                const path = row.querySelector('.field-path').textContent;
+                const minInput = row.querySelector('.field-limits input[placeholder^="最小"]');
+                const maxInput = row.querySelector('.field-limits input[placeholder^="最大"]');
+                if (minInput && minInput.value !== "") {
+                    if (!newFieldLimits[path]) newFieldLimits[path] = {};
+                    newFieldLimits[path].min = minInput.value;
+                }
+                if (maxInput && maxInput.value !== "") {
+                    if (!newFieldLimits[path]) newFieldLimits[path] = {};
+                    newFieldLimits[path].max = maxInput.value;
+                }
+            });
+            const fieldDefaults = window._fieldDefaultsObj || {};
             const templateConfig = {
                 template: modifiedTemplate,
                 fieldTypes: fieldTypes,
-                fieldLimits: fieldLimits
+                fieldLimits: newFieldLimits,
+                fieldDefaults: fieldDefaults,
+                pushInterval: pushInterval,
+                groupCount: groupCount,
+                mode: mode // 关键：发送当前模式
             };
-            
             const templateJson = JSON.stringify(templateConfig);
             ws.send(templateJson);
             log('发送模板配置: ' + templateJson, 'sent');
-            
             document.getElementById('jsonInput').value = JSON.stringify(modifiedTemplate, null, 2);
         }
 
@@ -816,10 +1014,14 @@
         // 页面加载时初始化
         document.addEventListener('DOMContentLoaded', function() {
             getConnectionCount();
-            
+            // 默认模板
+            const defaultTemplate = {"data": [{"id": 4341, "type": 1, "x": -14.392636016309739, "y": 45.06815540454186, "z": 0.0, "a": 4.927792, "d": 13.49925944656905}]};
+            document.getElementById('jsonInput').value = JSON.stringify(defaultTemplate, null, 2);
+            parseAndEditTemplate();
+            // 按钮高亮初始化
+            document.getElementById('normalModeBtn').classList.add('active');
             // 添加测试按钮用于验证功能
-            const testButton = document.createElement('button');
-            testButton.textContent = '测试字段编辑器';
+            const testButton = document.getElementById('testFieldEditorBtn');
             testButton.onclick = function() {
                 const testTemplate = {
                     "user_id": 0,
@@ -835,12 +1037,75 @@
                 document.getElementById('jsonInput').value = JSON.stringify(testTemplate, null, 2);
                 parseAndEditTemplate();
             };
-            document.querySelector('.controls').appendChild(testButton);
         });
 
         function toggleLog() {
             const logContainer = document.getElementById('floatingLogContainer');
             logContainer.classList.toggle('hide');
+        }
+
+        function changePushInterval() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                alert('请先建立WebSocket连接');
+                return;
+            }
+            const pushInterval = parseFloat(document.getElementById('pushIntervalInput').value) || 1;
+            if (pushInterval < 0.1) {
+                alert('推送频率不能小于0.1秒');
+                return;
+            }
+            const msg = JSON.stringify({ pushInterval });
+            ws.send(msg);
+            log('发送推送频率调整: ' + msg, 'sent');
+        }
+
+        function updateAndReconnectTemplate() {
+            if (!currentTemplate) {
+                alert('请先解析模板');
+                return;
+            }
+            if (ws) {
+                ws.onclose = function() {
+                    isConnected = false;
+                    updateConnectionStatus();
+                    updateTemplateButtons();
+                    log('WebSocket连接已关闭，准备重连', 'info');
+                    // 断开后自动重连并应用模板
+                    connect();
+                    let tryCount = 0;
+                    const trySend = setInterval(() => {
+                        if (isConnected) {
+                            clearInterval(trySend);
+                            _doApplyTemplate();
+                        } else if (++tryCount > 20) {
+                            clearInterval(trySend);
+                            alert('重连超时，无法应用模板');
+                        }
+                    }, 200);
+                };
+                ws.close();
+            } else {
+                connect();
+                let tryCount = 0;
+                const trySend = setInterval(() => {
+                    if (isConnected) {
+                        clearInterval(trySend);
+                        _doApplyTemplate();
+                    } else if (++tryCount > 20) {
+                        clearInterval(trySend);
+                        alert('重连超时，无法应用模板');
+                    }
+                }, 200);
+            }
+        }
+
+        function toggleMode(isAdvanced) {
+            mode = isAdvanced ? "advanced" : "normal";
+            // 按钮高亮
+            document.getElementById('normalModeBtn').classList.toggle('active', mode === 'normal');
+            document.getElementById('advancedModeBtn').classList.toggle('active', mode === 'advanced');
+            log('已切换为' + (isAdvanced ? '高级模式' : '普通模式'), 'info');
+            if (currentTemplate) renderFieldEditor(currentTemplate);
         }
     </script>
 </body>

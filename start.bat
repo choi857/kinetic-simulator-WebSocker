@@ -1,7 +1,7 @@
 @echo off
-echo 启动动力学模拟器WebSocket服务...
+echo 启动模拟器WebSocket服务...
 echo 端口: 1883
-echo WebSocket端点: /websocket/kinetic
+echo WebSocket端点: /
 echo.
 
 REM 检查Java版本
