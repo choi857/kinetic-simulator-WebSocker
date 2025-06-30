@@ -39,7 +39,7 @@ RUN addgroup -g 1001 -S appgroup && \
 WORKDIR /app
 
 # 从构建阶段复制jar文件
-COPY --from=builder /app/target/kinetic-simulator-WebSocker-*.jar app.jar
+COPY --from=builder /app/target/kinetic-simulator-websocker-*.jar app.jar
 
 # 创建日志目录
 RUN mkdir -p /app/logs && \
