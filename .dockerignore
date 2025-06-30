@@ -1,0 +1,33 @@
+# Git相关
+.git
+.gitignore
+
+# IDE相关
+.idea
+*.iml
+.vscode
+*.swp
+*.swo
+
+# 构建输出
+target/
+out/
+build/
+
+# 日志文件
+*.log
+logs/
+
+# 临时文件
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# 文档
+*.md
+!README.md
+
+# 其他
+*.zip
+*.tar.gz 

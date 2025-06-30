@@ -1,0 +1,114 @@
+# Docker Compose 多IP配置文件
+# 用于同时启动多个不同IP的WebSocket动态数据模拟器服务
+version: '3.8'
+
+services:
+  # WebSocket模拟器服务 - IP1 (192.168.2.114)
+  websocket-simulator-ip1:
+    # 构建镜像：使用当前目录的Dockerfile
+    build: .
+    
+    # 容器名称：便于识别和管理
+    container_name: websocket-simulator-192.168.2.114
+    
+    # 端口映射：将容器的1883端口映射到主机的1883端口
+    # 格式：主机端口:容器端口
+    ports:
+      - "1883:1883"
+    
+    # 环境变量：设置Spring Boot的运行环境
+    environment:
+      # 激活Docker环境配置
+      - SPRING_PROFILES_ACTIVE=docker
+      # 设置服务端口
+      - SERVER_PORT=1883
+      # 设置服务IP地址
+      - SERVER_IP=192.168.2.114
+    
+    # 数据卷挂载：将主机目录挂载到容器内
+    volumes:
+      # 日志目录：将容器内的/app/logs挂载到主机的./logs/192.168.2.114
+      # 这样可以在主机上直接查看应用日志，按IP分目录
+      - ./logs/192.168.2.114:/app/logs
+      # Docker配置文件：只读挂载，容器内使用Docker专用配置
+      - ./application-docker.properties:/app/application-docker.properties:ro
+      # IP专用配置文件：只读挂载
+      - ./application-192.168.2.114.properties:/app/application-192.168.2.114.properties:ro
+    
+    # 重启策略：除非手动停止，否则总是重启容器
+    restart: unless-stopped
+    
+    # 网络配置：使用自定义网络
+    networks:
+      - websocket-network
+    
+    # 健康检查：定期检查服务是否正常运行
+    healthcheck:
+      # 检查命令：调用API接口验证服务状态
+      test: ["CMD", "curl", "-f", "http://localhost:1883/api/connection-count"]
+      # 检查间隔：每30秒检查一次
+      interval: 30s
+      # 超时时间：单次检查最多等待10秒
+      timeout: 10s
+      # 重试次数：连续失败3次后认为不健康
+      retries: 3
+      # 启动等待时间：容器启动后等待60秒再开始健康检查
+      start_period: 60s
+
+  # WebSocket模拟器服务 - IP2 (192.168.2.115)
+  websocket-simulator-ip2:
+    # 构建镜像：使用当前目录的Dockerfile
+    build: .
+    
+    # 容器名称：便于识别和管理
+    container_name: websocket-simulator-192.168.2.115
+    
+    # 端口映射：将容器的1883端口映射到主机的1885端口
+    # 注意：两个服务都监听1883端口，但主机端口不同，避免冲突
+    ports:
+      - "1885:1883"
+    
+    # 环境变量：设置Spring Boot的运行环境
+    environment:
+      # 激活Docker环境配置
+      - SPRING_PROFILES_ACTIVE=docker
+      # 设置服务端口
+      - SERVER_PORT=1883
+      # 设置服务IP地址
+      - SERVER_IP=192.168.2.115
+    
+    # 数据卷挂载：将主机目录挂载到容器内
+    volumes:
+      # 日志目录：将容器内的/app/logs挂载到主机的./logs/192.168.2.115
+      - ./logs/192.168.2.115:/app/logs
+      # Docker配置文件：只读挂载，容器内使用Docker专用配置
+      - ./application-docker.properties:/app/application-docker.properties:ro
+      # IP专用配置文件：只读挂载
+      - ./application-192.168.2.115.properties:/app/application-192.168.2.115.properties:ro
+    
+    # 重启策略：除非手动停止，否则总是重启容器
+    restart: unless-stopped
+    
+    # 网络配置：使用自定义网络
+    networks:
+      - websocket-network
+    
+    # 健康检查：定期检查服务是否正常运行
+    healthcheck:
+      # 检查命令：调用API接口验证服务状态
+      test: ["CMD", "curl", "-f", "http://localhost:1883/api/connection-count"]
+      # 检查间隔：每30秒检查一次
+      interval: 30s
+      # 超时时间：单次检查最多等待10秒
+      timeout: 10s
+      # 重试次数：连续失败3次后认为不健康
+      retries: 3
+      # 启动等待时间：容器启动后等待60秒再开始健康检查
+      start_period: 60s
+
+# 网络定义
+networks:
+  # 自定义网络：用于容器间通信
+  websocket-network:
+    # 网络驱动：bridge（桥接模式，默认）
+    driver: bridge 
