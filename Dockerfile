@@ -12,6 +12,7 @@ COPY mvnw .
 # 下载依赖（利用Docker缓存层）
 RUN ./mvnw dependency:go-offline -B
 
+
 # 复制源代码
 COPY src src
 
