@@ -371,6 +371,33 @@ docker-compose logs -f
 - WebSocket：`ws://localhost:1883/`
 - API接口：`http://localhost:1883/api/connection-count`
 
+### Docker构建问题解决
+
+如果遇到Docker构建错误（如Maven Wrapper相关错误），可以使用以下方法：
+
+#### 方法1：使用修复脚本（推荐）
+```bash
+# Windows
+fix-docker-build.bat
+
+# Linux/macOS
+./fix-docker-build.sh
+```
+
+#### 方法2：使用备用Dockerfile
+```bash
+# 使用本地Maven的Dockerfile
+docker build -f Dockerfile.maven -t websocket-simulator .
+```
+
+#### 方法3：手动修复
+1. 确保项目根目录包含以下文件：
+   - `mvnw` (Maven Wrapper脚本)
+   - `mvnw.cmd` (Windows Maven Wrapper脚本)
+   - `.mvn/` 目录
+2. 清理Docker缓存：`docker builder prune -f`
+3. 重新构建：`docker build -t websocket-simulator .`
+
 ### 常用Docker命令
 
 | 命令 | 说明 |
@@ -402,9 +429,13 @@ kinetic-simulator-WebSocker/
 │       │   └── test-client.html          # 前端测试页面
 │       └── application.properties        # 应用配置
 ├── Dockerfile                             # Docker镜像构建文件
+├── Dockerfile.maven                       # 备用Dockerfile（使用本地Maven）
 ├── docker-compose.yml                     # Docker Compose配置
+├── docker-compose-multi-ip.yml           # 多IP Docker Compose配置
 ├── docker-start.bat                       # Windows启动脚本
 ├── docker-start.sh                        # Linux/macOS启动脚本
+├── fix-docker-build.bat                   # Windows Docker构建修复脚本
+├── fix-docker-build.sh                    # Linux/macOS Docker构建修复脚本
 ├── application-docker.properties          # Docker环境配置
 ├── .dockerignore                          # Docker忽略文件
 ├── Docker.md                              # Docker使用指南
@@ -469,11 +500,11 @@ start-multi-ip.bat
 
 多IP部署将启动以下服务：
 - 192.168.2.114:1883
-- 192.168.2.115:1884
+- 192.168.2.115:1883 (主机端口1885)
 
 访问地址：
 - http://192.168.2.114:1883/test-client.html
-- http://192.168.2.115:1884/test-client.html
+- http://192.168.2.115:1885/test-client.html
 
 ### Docker配置文件
 
@@ -555,8 +586,11 @@ kinetic-simulator-WebSocker/
 ├── docker-compose.yml
 ├── docker-compose-multi-ip.yml
 ├── Dockerfile
+├── Dockerfile.maven
 ├── start-multi-ip.bat
 ├── start-multi-ip.sh
+├── fix-docker-build.bat
+├── fix-docker-build.sh
 └── README.md
 ```
 
@@ -592,6 +626,11 @@ kinetic-simulator-WebSocker/
    - 确认Docker服务运行状态
    - 检查端口映射配置
    - 验证网络设置
+
+4. **Docker构建失败**
+   - 使用修复脚本：`fix-docker-build.bat` 或 `fix-docker-build.sh`
+   - 使用备用Dockerfile：`docker build -f Dockerfile.maven -t websocket-simulator .`
+   - 检查Maven Wrapper文件是否完整
 
 ### 日志查看
 
