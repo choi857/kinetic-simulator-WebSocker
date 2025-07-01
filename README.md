@@ -413,80 +413,29 @@ docker build -f Dockerfile.maven -t websocket-simulator .
 
 ---
 
-## 📁 项目结构
+## 🚀 交付部署
 
-```
-kinetic-simulator-WebSocker/
-├── src/                                    # 源代码
-│   ├── main/java/                         # Java源码
-│   │   └── com/example/kineticsimulatorwebsocker/
-│   │       ├── config/                    # 配置类
-│   │       ├── controller/                # 控制器
-│   │       ├── websocket/                 # WebSocket服务
-│   │       └── KineticSimulatorWebSockerApplication.java
-│   └── main/resources/
-│       ├── static/                        # 静态资源
-│       │   └── test-client.html          # 前端测试页面
-│       └── application.properties        # 应用配置
-├── Dockerfile                             # Docker镜像构建文件
-├── Dockerfile.maven                       # 备用Dockerfile（使用本地Maven）
-├── docker-compose.yml                     # Docker Compose配置
-├── docker-compose-multi-ip.yml           # 多IP Docker Compose配置
-├── docker-start.bat                       # Windows启动脚本
-├── docker-start.sh                        # Linux/macOS启动脚本
-├── fix-docker-build.bat                   # Windows Docker构建修复脚本
-├── fix-docker-build.sh                    # Linux/macOS Docker构建修复脚本
-├── application-docker.properties          # Docker环境配置
-├── .dockerignore                          # Docker忽略文件
-├── Docker.md                              # Docker使用指南
-├── pom.xml                                # Maven配置
-└── README.md                              # 项目说明
+### 📋 部署文档
+详细的交付部署指南请参考：[交付部署.md](./交付部署.md)
+
+### 🎯 快速部署
+
+#### 自动化部署脚本
+```bash
+# Linux/macOS
+./deploy-to-server.sh <服务器IP> [用户名] [镜像版本] [镜像仓库]
+
+# Windows
+deploy-to-server.bat <服务器IP> [用户名] [镜像版本] [镜像仓库]
 ```
 
----
+#### 部署流程
+1. **本地构建** - 构建Docker镜像
+2. **镜像上传** - 推送到Docker仓库
+3. **远程部署** - 自动部署到目标服务器
+4. **服务验证** - 检查服务状态
 
-## 🚀 部署方式对比
-
-| 部署方式 | 优点 | 缺点 | 适用场景 |
-|----------|------|------|----------|
-| **Docker** | 环境一致、快速部署、易于管理 | 需要安装Docker | 生产环境、团队协作 |
-| **传统部署** | 无需额外工具、直接运行 | 环境依赖、配置复杂 | 开发测试、单机部署 |
-
----
-
-## 🎯 下一步
-
-1. **学习Docker**：阅读 [Docker.md](./Docker.md) 了解详细使用方法
-2. **自定义配置**：修改 `application-docker.properties` 调整服务配置
-3. **生产部署**：根据实际需求调整Docker配置和网络设置
-4. **监控运维**：配置日志收集和监控告警
-
----
-
-## 📞 技术支持
-
-如有问题或建议，请：
-1. 查看 [故障排除](#故障排除) 部分
-2. 阅读 [Docker.md](./Docker.md) 详细说明
-3. 联系开发团队获取支持
-
----
-
-## 📄 许可证
-
-本项目采用 MIT 许可证，详见 [LICENSE](LICENSE) 文件。
-
----
-
-## 🙏 致谢
-
-感谢所有为项目做出贡献的开发者和用户！
-
----
-
-*最后更新时间：2024年6月*
-
-### 多IP部署
+### 🌐 多IP部署
 
 项目支持同时运行多个不同IP地址的服务实例：
 
@@ -513,6 +462,86 @@ start-multi-ip.bat
 - `application-docker.properties` - Docker环境配置
 - `application-192.168.2.114.properties` - IP1专用配置
 - `application-192.168.2.115.properties` - IP2专用配置
+
+---
+
+## 📁 项目结构
+
+```
+kinetic-simulator-WebSocker/
+├── src/                                    # 源代码
+│   ├── main/java/                         # Java源码
+│   │   └── com/example/kineticsimulatorwebsocker/
+│   │       ├── config/                    # 配置类
+│   │       ├── controller/                # 控制器
+│   │       ├── websocket/                 # WebSocket服务
+│   │       └── KineticSimulatorWebSockerApplication.java
+│   └── main/resources/
+│       ├── static/                        # 静态资源
+│       │   └── test-client.html          # 前端测试页面
+│       └── application.properties        # 应用配置
+├── Dockerfile                             # Docker镜像构建文件
+├── Dockerfile.maven                       # 备用Dockerfile（使用本地Maven）
+├── docker-compose.yml                     # Docker Compose配置
+├── docker-compose-multi-ip.yml           # 多IP Docker Compose配置
+├── docker-start.bat                       # Windows启动脚本
+├── docker-start.sh                        # Linux/macOS启动脚本
+├── fix-docker-build.bat                   # Windows Docker构建修复脚本
+├── fix-docker-build.sh                    # Linux/macOS Docker构建修复脚本
+├── deploy-to-server.bat                   # Windows服务器部署脚本
+├── deploy-to-server.sh                    # Linux/macOS服务器部署脚本
+├── application-docker.properties          # Docker环境配置
+├── .dockerignore                          # Docker忽略文件
+├── Docker.md                              # Docker使用指南
+├── 交付部署.md                            # 交付部署指南
+├── pom.xml                                # Maven配置
+└── README.md                              # 项目说明
+```
+
+---
+
+## 🚀 部署方式对比
+
+| 部署方式 | 优点 | 缺点 | 适用场景 |
+|----------|------|------|----------|
+| **Docker** | 环境一致、快速部署、易于管理 | 需要安装Docker | 生产环境、团队协作 |
+| **传统部署** | 无需额外工具、直接运行 | 环境依赖、配置复杂 | 开发测试、单机部署 |
+
+---
+
+## 🎯 下一步
+
+1. **学习Docker**：阅读 [Docker.md](./Docker.md) 了解详细使用方法
+2. **交付部署**：阅读 [交付部署.md](./交付部署.md) 了解生产环境部署
+3. **自定义配置**：修改 `application-docker.properties` 调整服务配置
+4. **生产部署**：根据实际需求调整Docker配置和网络设置
+5. **监控运维**：配置日志收集和监控告警
+
+---
+
+## 📞 技术支持
+
+如有问题或建议，请：
+1. 查看 [故障排除](#故障排除) 部分
+2. 阅读 [Docker.md](./Docker.md) 详细说明
+3. 阅读 [交付部署.md](./交付部署.md) 部署指南
+4. 联系开发团队获取支持
+
+---
+
+## 📄 许可证
+
+本项目采用 MIT 许可证，详见 [LICENSE](LICENSE) 文件。
+
+---
+
+## 🙏 致谢
+
+感谢所有为项目做出贡献的开发者和用户！
+
+---
+
+*最后更新时间：2024年12月*
 
 ## 使用说明
 
@@ -566,33 +595,6 @@ start-multi-ip.bat
 - 默认推送间隔：5秒
 - 可通过前端界面动态调整
 - 支持1-60秒范围设置
-
-## 项目结构
-
-```
-kinetic-simulator-WebSocker/
-├── src/
-│   ├── main/
-│   │   ├── java/
-│   │   │   └── com/example/kineticsimulatorwebsocker/
-│   │   │       ├── websocket/
-│   │   │       │   ├── DynamicWebSocketServer.java
-│   │   │       │   └── AdvancedDataGenerator.java
-│   │   │       └── KineticSimulatorWebsockerApplication.java
-│   │   └── resources/
-│   │       ├── static/
-│   │       │   └── test-client.html
-│   │       └── application.properties
-├── docker-compose.yml
-├── docker-compose-multi-ip.yml
-├── Dockerfile
-├── Dockerfile.maven
-├── start-multi-ip.bat
-├── start-multi-ip.sh
-├── fix-docker-build.bat
-├── fix-docker-build.sh
-└── README.md
-```
 
 ## 开发说明
 
